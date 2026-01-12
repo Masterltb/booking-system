@@ -39,7 +39,14 @@ public class Booking extends BaseEntity {
     private LocalDateTime endTime;
 
     @Column(name = "total_price", nullable = false)
-    private BigDecimal totalPrice;
+    private BigDecimal totalPrice; // Giá gốc
+
+    @Column(name = "discount_amount")
+    @Builder.Default
+    private BigDecimal discountAmount = BigDecimal.ZERO; // Số tiền được giảm
+
+    @Column(name = "final_price")
+    private BigDecimal finalPrice; // Giá sau khi giảm (total - discount)
 
     @Column(name = "platform_fee", nullable = false)
     private BigDecimal platformFee;
@@ -61,4 +68,7 @@ public class Booking extends BaseEntity {
     @Column(name = "is_settled")
     @Builder.Default
     private Boolean isSettled = false;
+
+    @Column(name = "voucher_code")
+    private String voucherCode;
 }

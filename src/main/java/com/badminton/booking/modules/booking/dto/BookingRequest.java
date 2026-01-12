@@ -18,5 +18,7 @@ public record BookingRequest(
     LocalDateTime endTime,
 
     @NotNull(message = "Phương thức thanh toán không được để trống")
-    PaymentMethod paymentMethod
+    PaymentMethod paymentMethod,
+
+    String voucherCode // MỚI THÊM
 ) {}

@@ -17,90 +17,45 @@ import java.util.Optional;
 @Repository
 public interface BookingRepository extends JpaRepository<Booking, Long> {
 
-    /**
-     * CORE LOGIC: Kiểm tra trùng lịch (Overlap).
-     * Một booking bị coi là trùng nếu:
-     * 1. Cùng sân (court_id).
-     * 2. Trạng thái KHÔNG PHẢI là CANCELLED.
-     * 3. Thời gian giao nhau: (StartA < EndB) AND (EndA > StartB).
-     *
-     * @return true nếu có ít nhất 1 booking trùng.
-     */
-    @Query("SELECT CASE WHEN COUNT(b) > 0 THEN true ELSE false END " +
-           "FROM Booking b " +
+    @Query("SELECT CASE WHEN COUNT(b) > 0 THEN true ELSE false END FROM Booking b " +
            "WHERE b.court.id = :courtId " +
-           "AND b.status != 'CANCELLED' " +
-           "AND b.startTime < :endTime " +
-           "AND b.endTime > :startTime")
-    boolean existsByCourtIdAndDateRange(
-            @Param("courtId") Long courtId,
-            @Param("startTime") LocalDateTime startTime,
-            @Param("endTime") LocalDateTime endTime
-    );
+           "AND b.status NOT IN ('CANCELLED') " +
+           "AND ((b.startTime < :endTime AND b.endTime > :startTime))")
+    boolean existsByCourtIdAndDateRange(@Param("courtId") Long courtId, 
+                                        @Param("startTime") LocalDateTime startTime, 
+                                        @Param("endTime") LocalDateTime endTime);
 
-    /**
-     * Lấy danh sách booking trong một khoảng thời gian (VD: 1 ngày) của 1 sân.
-     * Dùng cho API Get Availability (3.1).
-     */
-    @Query("SELECT b FROM Booking b " +
-           "WHERE b.court.id = :courtId " +
-           "AND b.status != 'CANCELLED' " +
-           "AND b.startTime >= :fromTime " +
-           "AND b.endTime <= :toTime")
-    List<Booking> findBookingsInDateRange(
-            @Param("courtId") Long courtId,
-            @Param("fromTime") LocalDateTime fromTime,
-            @Param("toTime") LocalDateTime toTime
-    );
-
-    /**
-     * Tìm booking theo mã check-in (Dùng cho chủ sân check-in khách).
-     */
-    Optional<Booking> findByCheckinCode(String checkinCode);
-
-    /**
-     * Lấy lịch sử đặt sân của User.
-     */
     Page<Booking> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
 
-    /**
-     * Lấy danh sách booking thuộc về các sân của một Chủ Sân (Owner).
-     * Dùng để Owner quản lý lịch đặt.
-     */
-    @Query("SELECT b FROM Booking b WHERE b.court.venue.owner.id = :ownerId ORDER BY b.startTime DESC")
+    @Query("SELECT b FROM Booking b WHERE b.court.venue.owner.id = :ownerId ORDER BY b.createdAt DESC")
     Page<Booking> findByOwnerId(@Param("ownerId") Long ownerId, Pageable pageable);
 
-    /**
-     * Tìm các booking cần đối soát (Settlement Job).
-     * Điều kiện:
-     * 1. Status là COMPLETED hoặc CHECKED_IN.
-     * 2. Chưa đối soát (isSettled = false).
-     */
-    @Query("SELECT b FROM Booking b WHERE b.isSettled = false AND " +
-           "(b.status = 'COMPLETED' OR b.status = 'CHECKED_IN')")
-    List<Booking> findReadyForSettlement();
+    Optional<Booking> findByCheckinCode(String checkinCode);
 
-    // --- ANALYTICS QUERIES (MỚI) ---
+    @Query("SELECT b FROM Booking b WHERE b.court.id = :courtId " +
+           "AND b.status NOT IN ('CANCELLED') " +
+           "AND b.startTime >= :startOfDay AND b.endTime <= :endOfDay")
+    List<Booking> findBookingsInDateRange(@Param("courtId") Long courtId, 
+                                          @Param("startOfDay") LocalDateTime startOfDay, 
+                                          @Param("endOfDay") LocalDateTime endOfDay);
 
-    /**
-     * Tính tổng doanh thu hoa hồng (Platform Fee) trong khoảng thời gian.
-     * Dùng cho Admin Dashboard.
-     */
-    @Query("SELECT SUM(b.platformFee) FROM Booking b " +
-           "WHERE b.status = 'COMPLETED' " +
-           "AND b.createdAt BETWEEN :startDate AND :endDate")
-    BigDecimal sumPlatformFeeByDateRange(@Param("startDate") LocalDateTime startDate,
-                                         @Param("endDate") LocalDateTime endDate);
-
-    /**
-     * Tính tổng doanh thu thực nhận của Chủ Sân (Sau khi trừ phí).
-     * Dùng cho Owner Dashboard.
-     */
-    @Query("SELECT SUM(b.totalPrice - b.platformFee) FROM Booking b " +
+    @Query("SELECT SUM(b.totalPrice) FROM Booking b " +
            "WHERE b.court.venue.owner.id = :ownerId " +
-           "AND b.status = 'COMPLETED' " +
-           "AND b.createdAt BETWEEN :startDate AND :endDate")
-    BigDecimal sumOwnerRevenueByDateRange(@Param("ownerId") Long ownerId,
-                                          @Param("startDate") LocalDateTime startDate,
+           "AND b.status IN ('COMPLETED', 'CHECKED_IN') " +
+           "AND b.startTime >= :startDate AND b.endTime <= :endDate")
+    BigDecimal sumOwnerRevenueByDateRange(@Param("ownerId") Long ownerId, 
+                                          @Param("startDate") LocalDateTime startDate, 
                                           @Param("endDate") LocalDateTime endDate);
+
+    /**
+     * Tìm các booking CONFIRMED đã quá giờ kết thúc.
+     */
+    @Query("SELECT b FROM Booking b WHERE b.status = 'CONFIRMED' AND b.endTime < :now")
+    List<Booking> findExpiredConfirmedBookings(@Param("now") LocalDateTime now);
+
+    /**
+     * Tìm các booking CHECKED_IN đã quá giờ kết thúc.
+     */
+    @Query("SELECT b FROM Booking b WHERE b.status = 'CHECKED_IN' AND b.endTime < :now")
+    List<Booking> findExpiredCheckedInBookings(@Param("now") LocalDateTime now);
 }

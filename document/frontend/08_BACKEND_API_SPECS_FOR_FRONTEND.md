@@ -1,7 +1,8 @@
-# BACKEND API SPECIFICATION (v1.8 - Recurring Booking)
+# BACKEND API SPECIFICATION (v2.1 - WebSocket Integrated)
 
 **System:** Badminton Booking Platform
 **Base URL:** `http://localhost:8080/api/v1`
+**WebSocket URL:** `http://localhost:8080/ws`
 **Date Format:** ISO 8601 (`yyyy-MM-ddTHH:mm:ss`) - Ví dụ: `2025-12-26T17:00:00`
 
 ---
@@ -37,14 +38,42 @@ Mọi lỗi (4xx, 5xx) đều trả về format JSON thống nhất:
 - **Role:** `ADMIN`, `OWNER`, `USER`
 - **UserStatus:** `ACTIVE`, `BANNED`, `INACTIVE`
 - **VenueStatus:** `ACTIVE`, `INACTIVE`, `PENDING_APPROVAL`
-- **BookingStatus:** `PENDING_PAY`, `CONFIRMED`, `CANCELLED`, `COMPLETED`, `CHECKED_IN`
+- **BookingStatus:** `PENDING_PAY`, `CONFIRMED`, `CANCELLED`, `COMPLETED`, `CHECKED_IN`, `BLOCKED`
 - **PaymentMethod:** `VNPAY`, `WALLET`, `CASH`
 - **TransactionType:** `DEPOSIT`, `WITHDRAW`, `BOOKING_PAYMENT`, `BOOKING_REFUND`, `SETTLEMENT`
 - **TransactionStatus:** `PENDING`, `SUCCESS`, `FAILED`
+- **DiscountType:** `PERCENTAGE`, `FIXED_AMOUNT`
 
 ---
 
-## 4. API Endpoints Detail
+## 4. WebSocket Integration (Real-time Notification)
+
+### 4.1. Connection
+*   **Library:** `sockjs-client`, `stompjs`
+*   **Endpoint:** `/ws`
+*   **Handshake:** Cần gửi kèm Token (nếu thư viện hỗ trợ) hoặc xác thực sau khi connect.
+
+### 4.2. Topics (Channels)
+*   **User Notification:** `/queue/user/{userId}`
+    *   Nhận thông báo cá nhân (Check-in thành công, Booking bị hủy...).
+*   **Owner Notification:** `/queue/owner/{ownerId}`
+    *   Nhận thông báo quản lý (Có booking mới, Doanh thu...).
+
+### 4.3. Message Format
+```json
+{
+  "id": 1,
+  "title": "Đặt sân thành công",
+  "message": "Bạn đã đặt sân Sân 1 thành công lúc 18:00",
+  "type": "BOOKING", // BOOKING, SYSTEM, PROMOTION
+  "isRead": false,
+  "createdAt": "2025-12-27T10:00:00"
+}
+```
+
+---
+
+## 5. API Endpoints Detail
 
 ### A. MODULE AUTH (`/auth`)
 
@@ -205,12 +234,13 @@ Mọi lỗi (4xx, 5xx) đều trả về format JSON thống nhất:
       "courtId": 5,
       "startTime": "2025-12-27T17:00:00",
       "endTime": "2025-12-27T19:00:00",
-      "paymentMethod": "WALLET"
+      "paymentMethod": "WALLET",
+      "voucherCode": "SALE50"
     }
     ```
 *   **Response (201 Created):** `BookingResponse`
 
-#### 2. Create Recurring Booking (User) - MỚI
+#### 2. Create Recurring Booking (User)
 *   **Method:** `POST /bookings/recurring`
 *   **Auth:** `Bearer Token` (Role USER/OWNER)
 *   **Body:**
@@ -247,6 +277,30 @@ Mọi lỗi (4xx, 5xx) đều trả về format JSON thống nhất:
 *   **Method:** `GET /partner/bookings`
 *   **Auth:** `Bearer Token` (Role OWNER)
 *   **Response:** `Page<BookingResponse>`.
+
+#### 7. Block Slot (Partner)
+*   **Method:** `POST /partner/bookings/block`
+*   **Auth:** `Bearer Token` (Role OWNER)
+*   **Body:**
+    ```json
+    {
+      "courtId": 5,
+      "startTime": "2025-12-27T10:00:00",
+      "endTime": "2025-12-27T12:00:00",
+      "reason": "Bảo trì sân"
+    }
+    ```
+*   **Response:** 200 OK.
+
+#### 8. Unblock Slot (Partner)
+*   **Method:** `DELETE /partner/bookings/unblock/{id}`
+*   **Auth:** `Bearer Token` (Role OWNER)
+*   **Response:** 200 OK.
+
+#### 9. Get Availability (Public)
+*   **Method:** `GET /public/venues/{venueId}/availability`
+*   **Params:** `date` (YYYY-MM-DD), `courtId` (Optional)
+*   **Response:** `List<BookingResponse>`
 
 ---
 
@@ -328,4 +382,26 @@ Mọi lỗi (4xx, 5xx) đều trả về format JSON thống nhất:
 #### 5. Approve Withdraw (Admin)
 *   **Method:** `PUT /admin/withdrawals/{id}/approve`
 *   **Auth:** `Bearer Token` (Role ADMIN)
+*   **Response:** 200 OK.
+
+---
+
+### G. MODULE PROMOTION
+
+#### 1. Create Voucher (Partner)
+*   **Method:** `POST /partner/vouchers`
+*   **Auth:** `Bearer Token` (Role OWNER)
+*   **Body:**
+    ```json
+    {
+      "code": "SALE50",
+      "discountType": "FIXED_AMOUNT",
+      "discountValue": 50000,
+      "minOrderValue": 200000,
+      "usageLimit": 100,
+      "startDate": "2025-01-01T00:00:00",
+      "endDate": "2025-01-31T23:59:59",
+      "venueId": 10
+    }
+    ```
 *   **Response:** 200 OK.
