@@ -1,9 +1,9 @@
 package com.badminton.booking.modules.booking.controller;
 
-
 import com.badminton.booking.modules.booking.dto.BookingRequest;
 import com.badminton.booking.modules.booking.dto.BookingResponse;
 import com.badminton.booking.modules.booking.dto.CheckinRequest;
+import com.badminton.booking.modules.booking.dto.RecurringBookingRequest;
 import com.badminton.booking.modules.booking.service.IBookingService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -12,11 +12,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1")
@@ -28,10 +29,6 @@ public class BookingController {
 
     // --- USER API ---
 
-    /**
-     * Đặt sân mới.
-     * Endpoint: POST /api/v1/bookings
-     */
     @PostMapping("/bookings")
     public ResponseEntity<BookingResponse> createBooking(@Valid @RequestBody BookingRequest request) {
         logger.info("Yêu cầu đặt sân courtId: {} từ {}", request.courtId(), request.startTime());
@@ -40,9 +37,21 @@ public class BookingController {
     }
 
     /**
-     * Xem lịch sử đặt sân của tôi.
-     * Endpoint: GET /api/v1/bookings/my-bookings
+     * Đặt lịch cố định (Recurring Booking).
+     * Endpoint: POST /api/v1/bookings/recurring
      */
+    @PostMapping("/bookings/recurring")
+    public ResponseEntity<List<BookingResponse>> createRecurringBooking(@Valid @RequestBody RecurringBookingRequest request) {
+        logger.info("Yêu cầu đặt lịch cố định courtId: {}", request.courtId());
+        List<BookingResponse> responses = bookingService.createRecurringBooking(request);
+        return new ResponseEntity<>(responses, HttpStatus.CREATED);
+    }
+
+    @GetMapping("/bookings/{id}")
+    public ResponseEntity<BookingResponse> getBookingById(@PathVariable Long id) {
+        return ResponseEntity.ok(bookingService.getBookingById(id));
+    }
+
     @GetMapping("/bookings/my-bookings")
     public ResponseEntity<Page<BookingResponse>> getMyBookings(
             @RequestParam(defaultValue = "0") int page,
@@ -52,10 +61,6 @@ public class BookingController {
         return ResponseEntity.ok(bookingService.getMyBookings(pageable));
     }
 
-    /**
-     * Hủy đặt sân.
-     * Endpoint: POST /api/v1/bookings/{id}/cancel
-     */
     @PostMapping("/bookings/{id}/cancel")
     public ResponseEntity<Void> cancelBooking(@PathVariable Long id) {
         bookingService.cancelBooking(id);
@@ -64,10 +69,6 @@ public class BookingController {
 
     // --- PARTNER API (Owner) ---
 
-    /**
-     * Check-in cho khách.
-     * Endpoint: POST /api/v1/partner/bookings/check-in
-     */
     @PostMapping("/partner/bookings/check-in")
     @PreAuthorize("hasRole('OWNER')")
     public ResponseEntity<Void> checkIn(@Valid @RequestBody CheckinRequest request) {
@@ -75,10 +76,6 @@ public class BookingController {
         return ResponseEntity.ok().build();
     }
 
-    /**
-     * Xem danh sách booking của các sân mình quản lý.
-     * Endpoint: GET /api/v1/partner/bookings
-     */
     @GetMapping("/partner/bookings")
     @PreAuthorize("hasRole('OWNER')")
     public ResponseEntity<Page<BookingResponse>> getOwnerBookings(

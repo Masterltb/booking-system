@@ -12,6 +12,7 @@ import org.mapstruct.Named;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Mapper(componentModel = "spring")
@@ -19,10 +20,11 @@ public interface VenueMapper {
 
     @Mapping(target = "thumbnail", source = "images", qualifiedByName = "mapThumbnail")
     @Mapping(target = "images", source = "images", qualifiedByName = "mapImageUrls")
+    // MapStruct tự động convert Set -> List cho courts
     VenueResponse toResponse(Venue venue);
 
     @Mapping(target = "owner", ignore = true)
-    @Mapping(target = "status", constant = "PENDING_APPROVAL") // Mặc định chờ duyệt
+    @Mapping(target = "status", constant = "ACTIVE") 
     @Mapping(target = "averageRating", constant = "0.0")
     @Mapping(target = "totalReviews", constant = "0")
     @Mapping(target = "courts", ignore = true)
@@ -34,20 +36,18 @@ public interface VenueMapper {
 
     CourtResponse toCourtResponse(Court court);
 
-    // --- Custom Mapping Logic ---
-
     @Named("mapThumbnail")
-    default String mapThumbnail(List<VenueImage> images) {
+    default String mapThumbnail(Set<VenueImage> images) { // Đổi List -> Set
         if (images == null || images.isEmpty()) return null;
         return images.stream()
                 .filter(img -> Boolean.TRUE.equals(img.getIsThumbnail()))
                 .findFirst()
                 .map(VenueImage::getImageUrl)
-                .orElse(images.get(0).getImageUrl()); // Fallback lấy ảnh đầu tiên
+                .orElse(images.iterator().next().getImageUrl()); // Lấy phần tử đầu tiên của Set
     }
 
     @Named("mapImageUrls")
-    default List<String> mapImageUrls(List<VenueImage> images) {
+    default List<String> mapImageUrls(Set<VenueImage> images) { // Đổi List -> Set
         if (images == null) return Collections.emptyList();
         return images.stream()
                 .map(VenueImage::getImageUrl)

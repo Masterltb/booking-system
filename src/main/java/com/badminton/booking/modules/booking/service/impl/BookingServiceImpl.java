@@ -1,22 +1,32 @@
 package com.badminton.booking.modules.booking.service.impl;
 
 import com.badminton.booking.common.enums.BookingStatus;
+import com.badminton.booking.common.enums.PaymentMethod;
+import com.badminton.booking.common.enums.TransactionStatus;
+import com.badminton.booking.common.enums.TransactionType;
 import com.badminton.booking.common.exception.AppException;
 import com.badminton.booking.common.exception.ConflictException;
 import com.badminton.booking.common.exception.ResourceNotFoundException;
+import com.badminton.booking.common.service.EmailService;
 import com.badminton.booking.modules.booking.dto.BookingRequest;
 import com.badminton.booking.modules.booking.dto.BookingResponse;
 import com.badminton.booking.modules.booking.dto.CheckinRequest;
+import com.badminton.booking.modules.booking.dto.RecurringBookingRequest;
 import com.badminton.booking.modules.booking.entity.Booking;
 import com.badminton.booking.modules.booking.mapper.BookingMapper;
 import com.badminton.booking.modules.booking.repository.BookingRepository;
 import com.badminton.booking.modules.booking.service.IBookingService;
+import com.badminton.booking.modules.identity.entity.Transaction;
 import com.badminton.booking.modules.identity.entity.User;
+import com.badminton.booking.modules.identity.entity.Wallet;
+import com.badminton.booking.modules.identity.repository.TransactionRepository;
 import com.badminton.booking.modules.identity.repository.UserRepository;
+import com.badminton.booking.modules.identity.repository.WalletRepository;
 import com.badminton.booking.modules.venue.entity.Court;
 import com.badminton.booking.modules.venue.repository.CourtRepository;
 import com.badminton.booking.modules.venue.service.IPricingService;
 import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.RandomStringUtils;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -24,8 +34,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.UUID;
+import java.time.LocalTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -34,40 +48,46 @@ public class BookingServiceImpl implements IBookingService {
     private final BookingRepository bookingRepository;
     private final CourtRepository courtRepository;
     private final UserRepository userRepository;
+    private final WalletRepository walletRepository;
+    private final TransactionRepository transactionRepository;
     private final IPricingService pricingService;
     private final BookingMapper bookingMapper;
+    private final EmailService emailService;
 
     @Override
     @Transactional
     public BookingResponse createBooking(BookingRequest request) {
-        // 1. Lấy User đang đăng nhập
         String email = SecurityContextHolder.getContext().getAuthentication().getName();
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        // 2. Validate Court
         Court court = courtRepository.findById(request.courtId())
                 .orElseThrow(() -> new ResourceNotFoundException("Court", "id", request.courtId()));
 
-        // 3. Validate Thời gian (Logic Giờ Chẵn đã check ở PricingService, nhưng check lại ở đây cho chắc)
+        // 1. Validate Thời gian (Giờ bắt đầu < Giờ kết thúc)
         if (request.startTime().isAfter(request.endTime())) {
             throw new AppException("Giờ bắt đầu phải trước giờ kết thúc");
         }
 
-        // 4. Check Trùng Lịch (Critical)
+        // 2. Validate Khung Giờ Mở Cửa (MỚI THÊM)
+        LocalTime openTime = court.getVenue().getOpenTime();
+        LocalTime closeTime = court.getVenue().getCloseTime();
+        LocalTime reqStart = request.startTime().toLocalTime();
+        LocalTime reqEnd = request.endTime().toLocalTime();
+
+        if (reqStart.isBefore(openTime) || reqEnd.isAfter(closeTime)) {
+            throw new AppException("Khung giờ đặt phải nằm trong giờ mở cửa của sân (" + openTime + " - " + closeTime + ")");
+        }
+
         boolean isOverlap = bookingRepository.existsByCourtIdAndDateRange(
                 request.courtId(), request.startTime(), request.endTime());
         if (isOverlap) {
             throw new ConflictException("Sân này đã có người đặt trong khung giờ bạn chọn.");
         }
 
-        // 5. Tính tiền
         BigDecimal totalPrice = pricingService.calculatePrice(request.courtId(), request.startTime(), request.endTime());
-        
-        // 6. Tính phí sàn (5%)
         BigDecimal platformFee = totalPrice.multiply(BigDecimal.valueOf(0.05));
 
-        // 7. Tạo Booking Entity
         Booking booking = Booking.builder()
                 .user(user)
                 .court(court)
@@ -75,17 +95,105 @@ public class BookingServiceImpl implements IBookingService {
                 .endTime(request.endTime())
                 .totalPrice(totalPrice)
                 .platformFee(platformFee)
-                .status(BookingStatus.PENDING_PAY) // Mặc định là chờ thanh toán
+                .status(BookingStatus.PENDING_PAY)
                 .paymentMethod(request.paymentMethod())
                 .isSettled(false)
                 .build();
 
-        // 8. Lưu vào DB
-        Booking savedBooking = bookingRepository.save(booking);
+        if (request.paymentMethod() == PaymentMethod.VNPAY) {
+            Booking savedBooking = bookingRepository.save(booking);
+            String paymentUrl = "http://localhost:5173/mock-payment?bookingId=" + savedBooking.getId() + "&amount=" + totalPrice;
+            savedBooking.setPaymentRef(paymentUrl);
+            return bookingMapper.toResponse(savedBooking);
+        }
 
-        // TODO: Tích hợp VNPay ở đây (Sẽ trả về Payment URL trong response)
-        
+        Booking savedBooking = bookingRepository.save(booking);
         return bookingMapper.toResponse(savedBooking);
+    }
+
+    @Override
+    @Transactional
+    public List<BookingResponse> createRecurringBooking(RecurringBookingRequest request) {
+        String email = SecurityContextHolder.getContext().getAuthentication().getName();
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        Court court = courtRepository.findById(request.courtId())
+                .orElseThrow(() -> new ResourceNotFoundException("Court", "id", request.courtId()));
+
+        if (request.startDate().isAfter(request.endDate())) {
+            throw new AppException("Ngày bắt đầu phải trước ngày kết thúc");
+        }
+
+        // Validate Khung Giờ Mở Cửa (MỚI THÊM)
+        LocalTime openTime = court.getVenue().getOpenTime();
+        LocalTime closeTime = court.getVenue().getCloseTime();
+        if (request.startTime().isBefore(openTime) || request.endTime().isAfter(closeTime)) {
+            throw new AppException("Khung giờ đặt phải nằm trong giờ mở cửa của sân (" + openTime + " - " + closeTime + ")");
+        }
+
+        List<Booking> bookingsToSave = new ArrayList<>();
+        LocalDate currentDate = request.startDate();
+
+        while (!currentDate.isAfter(request.endDate())) {
+            String dayOfWeek = currentDate.getDayOfWeek().name();
+            if (request.daysOfWeek().contains(dayOfWeek)) {
+                
+                LocalDateTime startDateTime = currentDate.atTime(request.startTime());
+                LocalDateTime endDateTime = currentDate.atTime(request.endTime());
+
+                boolean isOverlap = bookingRepository.existsByCourtIdAndDateRange(
+                        request.courtId(), startDateTime, endDateTime);
+                
+                if (isOverlap) {
+                    throw new ConflictException("Ngày " + currentDate + " đã bị trùng lịch. Vui lòng chọn khung giờ khác.");
+                }
+
+                BigDecimal totalPrice = pricingService.calculatePrice(request.courtId(), startDateTime, endDateTime);
+                BigDecimal platformFee = totalPrice.multiply(BigDecimal.valueOf(0.05));
+
+                Booking booking = Booking.builder()
+                        .user(user)
+                        .court(court)
+                        .startTime(startDateTime)
+                        .endTime(endDateTime)
+                        .totalPrice(totalPrice)
+                        .platformFee(platformFee)
+                        .status(BookingStatus.PENDING_PAY)
+                        .paymentMethod(request.paymentMethod())
+                        .isSettled(false)
+                        .build();
+                
+                bookingsToSave.add(booking);
+            }
+            currentDate = currentDate.plusDays(1);
+        }
+
+        if (bookingsToSave.isEmpty()) {
+            throw new AppException("Không tìm thấy ngày nào phù hợp trong khoảng thời gian đã chọn.");
+        }
+
+        List<Booking> savedBookings = bookingRepository.saveAll(bookingsToSave);
+        
+        return savedBookings.stream()
+                .map(bookingMapper::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public BookingResponse getBookingById(Long id) {
+        Booking booking = bookingRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Booking", "id", id));
+
+        String email = SecurityContextHolder.getContext().getAuthentication().getName();
+        boolean isOwner = booking.getCourt().getVenue().getOwner().getEmail().equals(email);
+        boolean isUser = booking.getUser().getEmail().equals(email);
+
+        if (!isOwner && !isUser) {
+            throw new AppException("Bạn không có quyền xem booking này");
+        }
+
+        return bookingMapper.toResponse(booking);
     }
 
     @Override
@@ -111,23 +219,44 @@ public class BookingServiceImpl implements IBookingService {
     @Override
     @Transactional
     public void checkIn(CheckinRequest request) {
-        // 1. Tìm Booking theo mã check-in
         Booking booking = bookingRepository.findByCheckinCode(request.checkinCode())
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy booking với mã này"));
 
-        // 2. Validate Status
         if (booking.getStatus() != BookingStatus.CONFIRMED) {
-            throw new AppException("Booking này không ở trạng thái CONFIRMED (Có thể chưa thanh toán hoặc đã hủy)");
+            throw new AppException("Booking này không ở trạng thái CONFIRMED");
         }
 
-        // 3. Validate Owner (Chỉ chủ sân của sân đó mới được check-in)
         String email = SecurityContextHolder.getContext().getAuthentication().getName();
-        if (!booking.getCourt().getVenue().getOwner().getEmail().equals(email)) {
+        User owner = userRepository.findByEmail(email).orElseThrow();
+        
+        if (!booking.getCourt().getVenue().getOwner().getId().equals(owner.getId())) {
             throw new AppException("Bạn không phải chủ sân này, không thể check-in.");
         }
 
-        // 4. Update Status
         booking.setStatus(BookingStatus.CHECKED_IN);
+        
+        if (!booking.getIsSettled()) {
+            BigDecimal ownerReceive = booking.getTotalPrice().subtract(booking.getPlatformFee());
+            
+            Wallet ownerWallet = walletRepository.findByUserId(owner.getId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Wallet not found for owner"));
+            
+            ownerWallet.setBalance(ownerWallet.getBalance().add(ownerReceive));
+            walletRepository.save(ownerWallet);
+            
+            Transaction transaction = Transaction.builder()
+                    .wallet(ownerWallet)
+                    .amount(ownerReceive)
+                    .type(TransactionType.SETTLEMENT)
+                    .status(TransactionStatus.SUCCESS)
+                    .description("Nhận tiền booking #" + booking.getId() + " (Đã trừ phí sàn)")
+                    .refId(booking.getId())
+                    .build();
+            transactionRepository.save(transaction);
+            
+            booking.setIsSettled(true);
+        }
+
         bookingRepository.save(booking);
     }
 
@@ -137,15 +266,11 @@ public class BookingServiceImpl implements IBookingService {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking", "id", bookingId));
 
-        // Logic hủy: Chỉ cho hủy nếu đang PENDING_PAY hoặc CONFIRMED (nhưng phải trước giờ đá X tiếng - Tùy policy)
-        // Ở đây MVP cho hủy thoải mái nếu chưa COMPLETED
         if (booking.getStatus() == BookingStatus.COMPLETED || booking.getStatus() == BookingStatus.CHECKED_IN) {
             throw new AppException("Không thể hủy booking đã hoàn thành.");
         }
 
         booking.setStatus(BookingStatus.CANCELLED);
         bookingRepository.save(booking);
-        
-        // TODO: Nếu đã thanh toán (CONFIRMED) -> Trigger hoàn tiền (Refund)
     }
 }

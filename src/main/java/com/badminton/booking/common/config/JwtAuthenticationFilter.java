@@ -2,11 +2,16 @@ package com.badminton.booking.common.config;
 
 import com.badminton.booking.common.utils.JwtUtils;
 import com.badminton.booking.modules.identity.service.CustomUserDetailsService;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -16,6 +21,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Filter này sẽ chặn mọi request gửi đến API để kiểm tra JWT Token.
@@ -35,51 +42,65 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             @NonNull FilterChain filterChain
     ) throws ServletException, IOException {
 
-        // 1. Lấy Header Authorization từ request
         final String authHeader = request.getHeader("Authorization");
         final String jwt;
         final String userEmail;
 
-        // 2. Kiểm tra xem Header có hợp lệ không (phải bắt đầu bằng "Bearer ")
+        // 1. Kiểm tra Header
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            // Nếu không có token, cho request đi tiếp (để các Filter phía sau xử lý, ví dụ chặn lại nếu API yêu cầu login)
             filterChain.doFilter(request, response);
             return;
         }
 
-        // 3. Cắt bỏ chữ "Bearer " để lấy chuỗi Token gốc
         jwt = authHeader.substring(7);
 
-        // 4. Trích xuất email từ Token
-        // (Nếu token rác hoặc hết hạn, hàm này sẽ ném Exception, Spring sẽ trả về 403)
-        userEmail = jwtUtils.extractUsername(jwt);
+        try {
+            // 2. Trích xuất email (Có thể ném Exception nếu token hết hạn hoặc sai)
+            userEmail = jwtUtils.extractUsername(jwt);
 
-        // 5. Nếu có email và User chưa được xác thực trong Context hiện tại
-        if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-            
-            // 6. Load thông tin User từ Database lên
-            UserDetails userDetails = this.userDetailsService.loadUserByUsername(userEmail);
+            // 3. Xác thực User
+            if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+                UserDetails userDetails = this.userDetailsService.loadUserByUsername(userEmail);
 
-            // 7. Kiểm tra tính hợp lệ của Token (Signature đúng? Hết hạn chưa? Email khớp không?)
-            if (jwtUtils.validateToken(jwt, userDetails)) {
-                
-                // 8. Tạo đối tượng Authentication chuẩn của Spring Security
-                UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
-                        userDetails,
-                        null, // Không cần credentials (password) vì đã xác thực bằng token rồi
-                        userDetails.getAuthorities()
-                );
-
-                // 9. Gắn thêm thông tin request (IP, Session ID...) vào authToken
-                authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-
-                // 10. QUAN TRỌNG: Lưu authToken vào SecurityContext
-                // Từ giờ trở đi, Spring Security coi như User này đã đăng nhập thành công
-                SecurityContextHolder.getContext().setAuthentication(authToken);
+                if (jwtUtils.validateToken(jwt, userDetails)) {
+                    UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
+                            userDetails,
+                            null,
+                            userDetails.getAuthorities()
+                    );
+                    authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                    SecurityContextHolder.getContext().setAuthentication(authToken);
+                }
             }
-        }
+            
+            // Cho phép đi tiếp nếu mọi thứ OK
+            filterChain.doFilter(request, response);
 
-        // 11. Cho phép request đi tiếp đến các Filter tiếp theo hoặc Controller
-        filterChain.doFilter(request, response);
+        } catch (ExpiredJwtException ex) {
+            // Bắt lỗi Token hết hạn -> Trả về 401 JSON
+            sendErrorResponse(response, HttpStatus.UNAUTHORIZED, "Token has expired");
+        } catch (JwtException | IllegalArgumentException ex) {
+            // Bắt các lỗi Token khác (sai chữ ký, rỗng...) -> Trả về 401 JSON
+            sendErrorResponse(response, HttpStatus.UNAUTHORIZED, "Invalid Token");
+        } catch (Exception ex) {
+            // Lỗi hệ thống khác -> 500
+            sendErrorResponse(response, HttpStatus.INTERNAL_SERVER_ERROR, "Internal Authentication Error");
+        }
+    }
+
+    /**
+     * Helper method để trả về lỗi JSON thủ công từ Filter
+     */
+    private void sendErrorResponse(HttpServletResponse response, HttpStatus status, String message) throws IOException {
+        response.setStatus(status.value());
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("status", status.value());
+        body.put("error", status.getReasonPhrase());
+        body.put("message", message);
+        body.put("path", ""); // Trong Filter khó lấy path chính xác, để trống hoặc lấy từ request.getRequestURI()
+
+        new ObjectMapper().writeValue(response.getOutputStream(), body);
     }
 }

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Xác nhận đặt sân thành công</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px; }
+        .header { background-color: #0056b3; color: white; padding: 10px; text-align: center; border-radius: 8px 8px 0 0; }
+        .content { padding: 20px; }
+        .booking-info { background-color: #f9f9f9; padding: 15px; border-radius: 4px; margin: 15px 0; }
+        .footer { text-align: center; font-size: 0.8em; color: #777; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>Đặt Sân Thành Công!</h2>
+        </div>
+        <div class="content">
+            <p>Xin chào <strong th:text="${name}">User</strong>,</p>
+            <p>Cảm ơn bạn đã đặt sân tại hệ thống của chúng tôi. Dưới đây là thông tin chi tiết:</p>
+
+            <div class="booking-info">
+                <p><strong>Sân:</strong> <span th:text="${venueName}">Sân A</span> - <span th:text="${courtName}">Sân 1</span></p>
+                <p><strong>Thời gian:</strong> <span th:text="${time}">17:00 - 19:00, 20/10/2025</span></p>
+                <p><strong>Mã Check-in:</strong> <strong style="color: #d9534f; font-size: 1.2em;" th:text="${checkinCode}">ABC123</strong></p>
+                <p><strong>Tổng tiền:</strong> <span th:text="${totalPrice}">150.000</span> VND</p>
+            </div>
+
+            <p>Vui lòng đưa mã Check-in cho chủ sân khi đến nơi.</p>
+            <p>Chúc bạn có những giây phút thể thao vui vẻ!</p>
+        </div>
+        <div class="footer">
+            <p>&copy; 2025 Badminton Booking System</p>
+        </div>
+    </div>
+</body>
+</html>

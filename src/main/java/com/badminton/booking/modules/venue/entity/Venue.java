@@ -6,12 +6,10 @@ import com.badminton.booking.modules.identity.entity.User;
 import jakarta.persistence.*;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
-import org.hibernate.annotations.JdbcTypeCode;
 
-import java.sql.Types;
 import java.time.LocalTime;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 
 @Entity
 @Table(name = "venues")
@@ -26,16 +24,13 @@ public class Venue extends BaseEntity {
     @JoinColumn(name = "owner_id", nullable = false)
     private User owner;
 
-    @Column(nullable = false)
-    @JdbcTypeCode(Types.VARCHAR) // BẮT BUỘC Hibernate map thành VARCHAR
+    @Column(nullable = false, columnDefinition = "VARCHAR(255)")
     private String name;
 
     @Column(columnDefinition = "TEXT")
     private String description;
 
-    // SỬA LỖI: Ép kiểu VARCHAR(255)
-    @Column(nullable = false)
-    @JdbcTypeCode(Types.VARCHAR) // BẮT BUỘC Hibernate map thành VARCHAR
+    @Column(nullable = false, columnDefinition = "VARCHAR(255)")
     private String address;
 
     private String province;
@@ -66,11 +61,13 @@ public class Venue extends BaseEntity {
     @Builder.Default
     private Integer totalReviews = 0;
 
+    // SỬA LỖI MultipleBagFetchException: Đổi List -> Set
     @OneToMany(mappedBy = "venue", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
-    private List<Court> courts = new ArrayList<>();
+    private Set<Court> courts = new HashSet<>();
 
+    // SỬA LỖI MultipleBagFetchException: Đổi List -> Set
     @OneToMany(mappedBy = "venue", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
-    private List<VenueImage> images = new ArrayList<>();
+    private Set<VenueImage> images = new HashSet<>();
 }

@@ -16,33 +16,30 @@ import java.util.Optional;
 public interface VenueRepository extends JpaRepository<Venue, Long> {
 
     /**
-     * Tìm kiếm sân (API 3.1).
-     * SỬA LỖI TRIỆT ĐỂ: Chuyển sang dùng NATIVE QUERY (SQL thuần).
-     * Lý do: Để bỏ qua cơ chế dịch JPQL của Hibernate đang gây lỗi hiểu lầm kiểu dữ liệu (bytea).
-     * Với Native Query, ta kiểm soát 100% câu lệnh gửi xuống DB.
+     * Tìm kiếm sân (API 3.1) - NÂNG CẤP.
+     * Hỗ trợ tìm theo Keyword, Province, District.
+     * Vẫn dùng Native Query để tránh lỗi bytea.
      */
-    @Query(value = "SELECT * FROM venues v WHERE v.status = 'ACTIVE' AND " +
-                   "(:keyword IS NULL OR LOWER(v.name) LIKE LOWER(CONCAT('%', :keyword, '%')) OR " +
-                   "LOWER(v.address) LIKE LOWER(CONCAT('%', :keyword, '%')))",
-           countQuery = "SELECT count(*) FROM venues v WHERE v.status = 'ACTIVE' AND " +
-                        "(:keyword IS NULL OR LOWER(v.name) LIKE LOWER(CONCAT('%', :keyword, '%')) OR " +
-                        "LOWER(v.address) LIKE LOWER(CONCAT('%', :keyword, '%')))",
+    @Query(value = "SELECT * FROM venues v WHERE v.status = 'ACTIVE' " +
+                   "AND (:keyword IS NULL OR LOWER(CAST(v.name AS TEXT)) LIKE LOWER(CONCAT('%', :keyword, '%')) OR LOWER(CAST(v.address AS TEXT)) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
+                   "AND (:province IS NULL OR v.province = :province) " +
+                   "AND (:district IS NULL OR v.district = :district)",
+           countQuery = "SELECT count(*) FROM venues v WHERE v.status = 'ACTIVE' " +
+                        "AND (:keyword IS NULL OR LOWER(CAST(v.name AS TEXT)) LIKE LOWER(CONCAT('%', :keyword, '%')) OR LOWER(CAST(v.address AS TEXT)) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
+                        "AND (:province IS NULL OR v.province = :province) " +
+                        "AND (:district IS NULL OR v.district = :district)",
            nativeQuery = true)
-    Page<Venue> search(@Param("keyword") String keyword, Pageable pageable);
+    Page<Venue> search(
+            @Param("keyword") String keyword,
+            @Param("province") String province,
+            @Param("district") String district,
+            Pageable pageable
+    );
 
-    /**
-     * Lấy chi tiết sân (API 3.2).
-     */
     @EntityGraph(attributePaths = {"images", "courts"})
     Optional<Venue> findWithDetailsById(Long id);
 
-    /**
-     * Lấy danh sách sân của một chủ sân (Owner).
-     */
     Page<Venue> findByOwnerId(Long ownerId, Pageable pageable);
 
-    /**
-     * Lọc sân theo trạng thái (Dùng cho Admin duyệt sân).
-     */
     Page<Venue> findByStatus(VenueStatus status, Pageable pageable);
 }

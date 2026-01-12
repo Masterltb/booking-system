@@ -7,13 +7,15 @@ import jakarta.persistence.*;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
 
+import java.time.LocalDateTime;
+
 @Entity
 @Table(name = "users")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@SuperBuilder // Thay đổi: Dùng SuperBuilder
+@SuperBuilder
 public class User extends BaseEntity {
 
     @Column(nullable = false, unique = true)
@@ -37,4 +39,11 @@ public class User extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private UserStatus status;
+
+    // --- OTP FIELDS (MỚI) ---
+    @Column(name = "otp_code")
+    private String otpCode;
+
+    @Column(name = "otp_expiry_date")
+    private LocalDateTime otpExpiryDate;
 }

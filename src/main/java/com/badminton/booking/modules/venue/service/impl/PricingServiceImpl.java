@@ -26,8 +26,16 @@ public class PricingServiceImpl implements IPricingService {
 
     @Override
     public BigDecimal calculatePrice(Long courtId, LocalDateTime startTime, LocalDateTime endTime) {
-        // 1. Validate Giờ Chẵn
-        if (startTime.getMinute() != 0 || endTime.getMinute() != 0) {
+        // 1. Validate Giờ Chẵn (Có xử lý đặc biệt cho 23:59:59)
+        boolean isStartEven = startTime.getMinute() == 0;
+        boolean isEndEven = endTime.getMinute() == 0;
+        
+        // Nếu endTime là 23:59:59 (hoặc 23:59), coi như là chẵn (kết thúc ngày)
+        if (endTime.toLocalTime().getHour() == 23 && endTime.toLocalTime().getMinute() == 59) {
+            isEndEven = true;
+        }
+
+        if (!isStartEven || !isEndEven) {
             throw new AppException("Hệ thống chỉ chấp nhận đặt theo giờ chẵn (Ví dụ: 17:00, 18:00).");
         }
 
@@ -39,17 +47,19 @@ public class PricingServiceImpl implements IPricingService {
         List<PricingRule> rules = pricingRuleRepository.findByVenueIdOrderByPriorityDesc(court.getVenue().getId());
 
         // 4. Tính tổng số giờ
-        long totalHours = Duration.between(startTime, endTime).toHours();
+        // Làm tròn lên: 59 phút -> 1 giờ
+        long totalMinutes = Duration.between(startTime, endTime).toMinutes();
+        long totalHours = (long) Math.ceil(totalMinutes / 60.0);
+
         if (totalHours <= 0) {
             throw new AppException("Thời gian đặt tối thiểu là 1 giờ.");
         }
 
-        // 5. Tính tiền (Vòng lặp từng giờ)
+        // 5. Tính tiền
         BigDecimal totalPrice = BigDecimal.ZERO;
         LocalDateTime current = startTime;
 
         for (int i = 0; i < totalHours; i++) {
-            // Truyền thêm ngày hiện tại (current) để check thứ
             BigDecimal hourlyPrice = findApplicablePrice(rules, current, courtId);
             totalPrice = totalPrice.add(hourlyPrice);
             
@@ -59,23 +69,14 @@ public class PricingServiceImpl implements IPricingService {
         return totalPrice;
     }
 
-    /**
-     * Tìm giá áp dụng cho một thời điểm cụ thể (Check cả Giờ và Thứ).
-     */
     private BigDecimal findApplicablePrice(List<PricingRule> rules, LocalDateTime currentDateTime, Long courtId) {
         BigDecimal defaultPrice = BigDecimal.valueOf(50000); 
         LocalTime time = currentDateTime.toLocalTime();
-        DayOfWeek dayOfWeek = currentDateTime.getDayOfWeek(); // Lấy thứ (MONDAY, TUESDAY...)
+        DayOfWeek dayOfWeek = currentDateTime.getDayOfWeek();
 
         for (PricingRule rule : rules) {
-            // Check 1: Rule có áp dụng cho Court này không?
             boolean isCourtMatch = (rule.getCourt() == null) || (rule.getCourt().getId().equals(courtId));
-            
-            // Check 2: Thời gian có nằm trong khung giờ của Rule không?
             boolean isTimeMatch = !time.isBefore(rule.getStartTime()) && time.isBefore(rule.getEndTime());
-
-            // Check 3: Thứ có khớp không? (MỚI THÊM)
-            // daysOfWeek lưu dạng chuỗi: "MONDAY,TUESDAY,WEDNESDAY" hoặc "ALL"
             boolean isDayMatch = checkDayOfWeek(rule.getDaysOfWeek(), dayOfWeek);
 
             if (isCourtMatch && isTimeMatch && isDayMatch) {
@@ -85,15 +86,10 @@ public class PricingServiceImpl implements IPricingService {
         return defaultPrice;
     }
 
-    /**
-     * Helper check thứ trong tuần.
-     */
     private boolean checkDayOfWeek(String ruleDays, DayOfWeek currentDay) {
         if (ruleDays == null || ruleDays.equalsIgnoreCase("ALL")) {
-            return true; // Áp dụng cho mọi ngày
+            return true;
         }
-        // Kiểm tra xem chuỗi ruleDays có chứa tên thứ hiện tại không
-        // Ví dụ: ruleDays="SATURDAY,SUNDAY", currentDay=SATURDAY -> true
         return ruleDays.toUpperCase().contains(currentDay.name());
     }
 }

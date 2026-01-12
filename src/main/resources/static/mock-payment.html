@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cổng Thanh Toán Giả Lập (VNPay Sandbox)</title>
+    <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #f0f2f5; }
+        .card { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; width: 400px; }
+        h2 { color: #0056b3; }
+        .amount { font-size: 1.5rem; font-weight: bold; color: #28a745; margin: 1rem 0; }
+        .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; margin: 5px; width: 100%; }
+        .btn-success { background-color: #28a745; color: white; }
+        .btn-danger { background-color: #dc3545; color: white; }
+        .btn:hover { opacity: 0.9; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>Cổng Thanh Toán Giả Lập</h2>
+        <p>Đơn hàng: <strong id="bookingId">...</strong></p>
+        <div class="amount" id="amount">... VND</div>
+        <p>Vui lòng chọn kết quả thanh toán:</p>
+
+        <button class="btn btn-success" onclick="processPayment('00')">Thanh toán Thành công</button>
+        <button class="btn btn-danger" onclick="processPayment('99')">Hủy thanh toán</button>
+    </div>
+
+    <script>
+        // Lấy tham số từ URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const bookingId = urlParams.get('bookingId');
+        const amount = urlParams.get('amount');
+
+        document.getElementById('bookingId').innerText = '#' + bookingId;
+        document.getElementById('amount').innerText = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
+
+        function processPayment(responseCode) {
+            // Gọi API IPN của Backend
+            fetch(`/api/v1/payments/ipn?vnp_ResponseCode=${responseCode}&vnp_TxnRef=${bookingId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.RspCode === '00') {
+                        alert('Thanh toán thành công! Đang quay về trang chủ...');
+                        // Redirect về Frontend (Ví dụ: localhost:3000/booking-success)
+                        window.location.href = 'http://localhost:3000/bookings';
+                    } else {
+                        alert('Thanh toán thất bại hoặc bị hủy.');
+                        window.location.href = 'http://localhost:3000/bookings';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Lỗi kết nối đến server.');
+                });
+        }
+    </script>
+</body>
+</html>

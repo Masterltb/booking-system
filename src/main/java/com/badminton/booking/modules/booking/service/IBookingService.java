@@ -3,33 +3,25 @@ package com.badminton.booking.modules.booking.service;
 import com.badminton.booking.modules.booking.dto.BookingRequest;
 import com.badminton.booking.modules.booking.dto.BookingResponse;
 import com.badminton.booking.modules.booking.dto.CheckinRequest;
+import com.badminton.booking.modules.booking.dto.RecurringBookingRequest;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.util.List;
+
 public interface IBookingService {
     
-    /**
-     * Tạo booking mới.
-     */
     BookingResponse createBooking(BookingRequest request);
-
-    /**
-     * Lấy danh sách booking của User đang đăng nhập.
-     */
-    Page<BookingResponse> getMyBookings(Pageable pageable);
-
-    /**
-     * Lấy danh sách booking của Owner (để quản lý sân).
-     */
-    Page<BookingResponse> getOwnerBookings(Pageable pageable);
-
-    /**
-     * Check-in cho khách (Dành cho Owner).
-     */
-    void checkIn(CheckinRequest request);
     
     /**
-     * Hủy booking (User hủy hoặc System hủy do timeout).
+     * Tạo booking cố định (Recurring).
+     * @return Danh sách các booking đã tạo.
      */
+    List<BookingResponse> createRecurringBooking(RecurringBookingRequest request);
+
+    BookingResponse getBookingById(Long id);
+    Page<BookingResponse> getMyBookings(Pageable pageable);
+    Page<BookingResponse> getOwnerBookings(Pageable pageable);
+    void checkIn(CheckinRequest request);
     void cancelBooking(Long bookingId);
 }

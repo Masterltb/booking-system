@@ -1,4 +1,4 @@
-# BACKEND API SPECIFICATION (v1.0)
+# BACKEND API SPECIFICATION (v1.8 - Recurring Booking)
 
 **System:** Badminton Booking Platform
 **Base URL:** `http://localhost:8080/api/v1`
@@ -35,10 +35,12 @@ Mọi lỗi (4xx, 5xx) đều trả về format JSON thống nhất:
 ## 3. Enums (Frontend cần định nghĩa đúng Type)
 
 - **Role:** `ADMIN`, `OWNER`, `USER`
-- **UserStatus:** `ACTIVE`, `BANNED`
+- **UserStatus:** `ACTIVE`, `BANNED`, `INACTIVE`
 - **VenueStatus:** `ACTIVE`, `INACTIVE`, `PENDING_APPROVAL`
 - **BookingStatus:** `PENDING_PAY`, `CONFIRMED`, `CANCELLED`, `COMPLETED`, `CHECKED_IN`
 - **PaymentMethod:** `VNPAY`, `WALLET`, `CASH`
+- **TransactionType:** `DEPOSIT`, `WITHDRAW`, `BOOKING_PAYMENT`, `BOOKING_REFUND`, `SETTLEMENT`
+- **TransactionStatus:** `PENDING`, `SUCCESS`, `FAILED`
 
 ---
 
@@ -46,7 +48,7 @@ Mọi lỗi (4xx, 5xx) đều trả về format JSON thống nhất:
 
 ### A. MODULE AUTH (`/auth`)
 
-#### 1. Register
+#### 1. Register (Step 1)
 *   **Method:** `POST /auth/register`
 *   **Auth:** Public
 *   **Body:**
@@ -59,20 +61,47 @@ Mọi lỗi (4xx, 5xx) đều trả về format JSON thống nhất:
       "role": "USER"                   // hoặc "OWNER"
     }
     ```
-*   **Response (201 Created):**
+*   **Response (200 OK):**
     ```json
     {
-      "id": 1,
-      "email": "user@example.com",
-      "fullName": "Nguyen Van A",
-      "phone": "0987654321",
-      "avatarUrl": null,
-      "role": "USER",
-      "status": "ACTIVE"
+      "message": "Vui lòng kiểm tra email để lấy mã OTP xác thực."
     }
     ```
 
-#### 2. Login
+#### 2. Verify OTP (Step 2)
+*   **Method:** `POST /auth/verify-otp`
+*   **Auth:** Public
+*   **Body:**
+    ```json
+    {
+      "email": "user@example.com",
+      "otp": "123456"
+    }
+    ```
+*   **Response (200 OK):**
+    ```json
+    {
+      "message": "Xác thực thành công. Bạn có thể đăng nhập ngay bây giờ."
+    }
+    ```
+
+#### 3. Resend OTP
+*   **Method:** `POST /auth/resend-otp`
+*   **Auth:** Public
+*   **Body:**
+    ```json
+    {
+      "email": "user@example.com"
+    }
+    ```
+*   **Response (200 OK):**
+    ```json
+    {
+      "message": "Mã OTP mới đã được gửi."
+    }
+    ```
+
+#### 4. Login
 *   **Method:** `POST /auth/login`
 *   **Auth:** Public
 *   **Body:**
@@ -99,44 +128,17 @@ Mọi lỗi (4xx, 5xx) đều trả về format JSON thống nhất:
 *   **Method:** `GET /public/venues`
 *   **Params:**
     *   `keyword` (Optional): Tìm theo tên hoặc địa chỉ.
+    *   `province` (Optional): Lọc theo Tỉnh/Thành phố.
+    *   `district` (Optional): Lọc theo Quận/Huyện.
     *   `page`: Default 0.
     *   `size`: Default 10.
     *   `sortBy`: Default "id".
     *   `sortDir`: "asc" hoặc "desc".
 *   **Response:** `Page<VenueResponse>`
-    ```json
-    {
-      "content": [
-        {
-          "id": 10,
-          "name": "Sân Cầu Lông A",
-          "description": "Sân đẹp, thoáng mát",
-          "address": "123 Đường Láng",
-          "province": "Hà Nội",
-          "district": "Đống Đa",
-          "ward": "Láng Thượng",
-          "openTime": "06:00:00",
-          "closeTime": "22:00:00",
-          "phoneContact": "0912345678",
-          "status": "ACTIVE",
-          "averageRating": 4.5,
-          "totalReviews": 100,
-          "thumbnail": "https://img.url/1.jpg",
-          "images": ["url1", "url2"],
-          "courts": []
-        }
-      ],
-      "totalPages": 5,
-      "totalElements": 50,
-      "last": false,
-      "size": 10,
-      "number": 0
-    }
-    ```
 
 #### 2. Get Venue Detail (Public)
 *   **Method:** `GET /public/venues/{id}`
-*   **Response:** Object `VenueResponse` (như trên, nhưng kèm danh sách `courts`).
+*   **Response:** Object `VenueResponse`.
 
 #### 3. Create Venue (Partner)
 *   **Method:** `POST /partner/venues`
@@ -147,6 +149,9 @@ Mọi lỗi (4xx, 5xx) đều trả về format JSON thống nhất:
       "name": "Sân Mới",
       "description": "Mô tả...",
       "address": "Địa chỉ...",
+      "province": "Hà Nội",
+      "district": "Cầu Giấy",
+      "ward": "Dịch Vọng",
       "openTime": "05:00:00",    // Format HH:mm:ss
       "closeTime": "23:00:00",   // openTime < closeTime
       "phoneContact": "098..."
@@ -156,7 +161,36 @@ Mọi lỗi (4xx, 5xx) đều trả về format JSON thống nhất:
 #### 4. Get My Venues (Partner)
 *   **Method:** `GET /partner/venues/me`
 *   **Auth:** `Bearer Token` (Role OWNER)
-*   **Response:** `Page<VenueResponse>` (Danh sách sân của chính Owner đó).
+*   **Response:** `Page<VenueResponse>`.
+
+#### 5. Configure Pricing (Partner)
+*   **Method:** `POST /partner/venues/{id}/pricing`
+*   **Auth:** `Bearer Token` (Role OWNER)
+*   **Body:**
+    ```json
+    [
+      {
+        "courtId": null,
+        "startTime": "06:00:00",
+        "endTime": "16:00:00",
+        "pricePerHour": 50000,
+        "priority": 1,
+        "daysOfWeek": "MONDAY,TUESDAY,WEDNESDAY,THURSDAY,FRIDAY"
+      }
+    ]
+    ```
+
+#### 6. Add Court (Partner)
+*   **Method:** `POST /partner/venues/{id}/courts`
+*   **Auth:** `Bearer Token` (Role OWNER)
+*   **Body:** `{ "name": "Sân 1" }`
+*   **Response:** `CourtResponse`
+
+#### 7. Upload Images (Partner)
+*   **Method:** `POST /partner/venues/{id}/images`
+*   **Auth:** `Bearer Token` (Role OWNER)
+*   **Body:** `["https://url1.jpg", "https://url2.jpg"]`
+*   **Response:** 200 OK.
 
 ---
 
@@ -165,73 +199,133 @@ Mọi lỗi (4xx, 5xx) đều trả về format JSON thống nhất:
 #### 1. Create Booking (User)
 *   **Method:** `POST /bookings`
 *   **Auth:** `Bearer Token` (Role USER/OWNER)
-*   **Validation Rules (Quan trọng cho Frontend):**
-    *   `startTime` và `endTime` phải là **tương lai**.
-    *   `startTime` < `endTime`.
-    *   **Giờ Chẵn:** Phút bắt buộc phải là `00` (Ví dụ: `17:00` OK, `17:30` Lỗi).
 *   **Body:**
     ```json
     {
       "courtId": 5,
       "startTime": "2025-12-27T17:00:00",
       "endTime": "2025-12-27T19:00:00",
-      "paymentMethod": "VNPAY"
+      "paymentMethod": "WALLET"
     }
     ```
-*   **Response (201 Created):**
+*   **Response (201 Created):** `BookingResponse`
+
+#### 2. Create Recurring Booking (User) - MỚI
+*   **Method:** `POST /bookings/recurring`
+*   **Auth:** `Bearer Token` (Role USER/OWNER)
+*   **Body:**
     ```json
     {
-      "id": 101,
       "courtId": 5,
-      "courtName": "Sân 1",
-      "venueName": "Sân Cầu Lông A",
-      "venueAddress": "123 Đường Láng",
-      "startTime": "2025-12-27T17:00:00",
-      "endTime": "2025-12-27T19:00:00",
-      "totalPrice": 150000,
-      "status": "PENDING_PAY",
-      "paymentMethod": "VNPAY",
-      "checkinCode": null, // Chỉ có khi CONFIRMED
-      "createdAt": "..."
+      "startTime": "18:00:00",
+      "endTime": "20:00:00",
+      "startDate": "2025-02-01",
+      "endDate": "2025-02-28",
+      "daysOfWeek": ["TUESDAY", "THURSDAY", "SATURDAY"],
+      "paymentMethod": "WALLET"
     }
     ```
+*   **Response (201 Created):** `List<BookingResponse>`
 
-#### 2. Get My Bookings (User)
+#### 3. Get My Bookings (User)
 *   **Method:** `GET /bookings/my-bookings`
 *   **Auth:** `Bearer Token`
 *   **Response:** `Page<BookingResponse>`
 
-#### 3. Cancel Booking (User)
+#### 4. Cancel Booking (User)
 *   **Method:** `POST /bookings/{id}/cancel`
 *   **Auth:** `Bearer Token`
 *   **Response:** 204 No Content.
 
-#### 4. Check-in (Partner)
+#### 5. Check-in (Partner)
 *   **Method:** `POST /partner/bookings/check-in`
+*   **Auth:** `Bearer Token` (Role OWNER)
+*   **Body:** `{ "checkinCode": "ABC123" }`
+*   **Response:** 200 OK.
+
+#### 6. Get Owner Bookings (Partner)
+*   **Method:** `GET /partner/bookings`
+*   **Auth:** `Bearer Token` (Role OWNER)
+*   **Response:** `Page<BookingResponse>`.
+
+---
+
+### D. MODULE WALLET (`/wallets`)
+
+#### 1. Get My Wallet
+*   **Method:** `GET /wallets/me`
+*   **Auth:** `Bearer Token`
+*   **Response:** `{ "id": 1, "balance": 500000, "currency": "VND" }`
+
+#### 2. Deposit (Nạp tiền)
+*   **Method:** `POST /wallets/deposit`
+*   **Auth:** `Bearer Token`
+*   **Body:** `{ "amount": 1000000 }`
+*   **Response:** 200 OK.
+
+#### 3. Pay Booking
+*   **Method:** `POST /wallets/pay-booking/{bookingId}`
+*   **Auth:** `Bearer Token`
+*   **Response:** 200 OK.
+
+#### 4. Transaction History
+*   **Method:** `GET /wallets/transactions`
+*   **Auth:** `Bearer Token`
+*   **Response:** `Page<Transaction>`
+
+#### 5. Request Withdraw (Partner)
+*   **Method:** `POST /wallets/withdraw`
 *   **Auth:** `Bearer Token` (Role OWNER)
 *   **Body:**
     ```json
     {
-      "checkinCode": "ABC123" // 6 ký tự
+      "amount": 500000,
+      "bankInfo": "Vietcombank - 123456789 - NGUYEN VAN A"
     }
     ```
 *   **Response:** 200 OK.
 
-#### 5. Get Owner Bookings (Partner)
-*   **Method:** `GET /partner/bookings`
-*   **Auth:** `Bearer Token` (Role OWNER)
-*   **Response:** `Page<BookingResponse>` (Danh sách booking đổ về các sân của Owner).
+---
+
+### E. MODULE REVIEW (`/reviews`)
+
+#### 1. Create Review
+*   **Method:** `POST /reviews`
+*   **Auth:** `Bearer Token`
+*   **Body:** `{ "bookingId": 101, "rating": 5, "comment": "Tốt" }`
+*   **Response:** 200 OK.
+
+#### 2. Get Venue Reviews (Public)
+*   **Method:** `GET /public/venues/{venueId}/reviews`
+*   **Response:** `Page<Review>`
 
 ---
 
-## 5. Frontend Action Items (Dành cho Agent Frontend)
+### F. MODULE STATISTICS & ADMIN
 
-1.  **Type Definition:** Tạo các interface TypeScript (`User`, `Venue`, `Booking`, `Page`) khớp chính xác với JSON Response ở trên.
-2.  **Axios Interceptor:**
-    *   Tự động gắn `Authorization: Bearer ...` vào request.
-    *   Xử lý lỗi `401 Unauthorized` để redirect về trang Login.
-3.  **Validation Form:**
-    *   Sử dụng Zod/Yup để validate form đăng ký (Email, Password min 6).
-    *   Validate form đặt sân: Chặn người dùng chọn giờ lẻ (phút != 00).
-4.  **Error Handling:**
-    *   Khi API trả về lỗi (ví dụ 409 Conflict), hãy lấy field `message` trong JSON response để hiển thị Toast/Alert cho user.
+#### 1. Get Revenue Stats (Partner)
+*   **Method:** `GET /partner/statistics/revenue`
+*   **Auth:** `Bearer Token` (Role OWNER)
+*   **Params:** `fromDate` (YYYY-MM-DD), `toDate` (YYYY-MM-DD)
+*   **Response:** `{ "totalRevenue": 1500000 }`
+
+#### 2. Get Venues by Status (Admin)
+*   **Method:** `GET /admin/venues`
+*   **Auth:** `Bearer Token` (Role ADMIN)
+*   **Params:** `status` (PENDING_APPROVAL, ACTIVE, INACTIVE)
+*   **Response:** `Page<VenueResponse>`
+
+#### 3. Approve Venue (Admin)
+*   **Method:** `PUT /admin/venues/{id}/approve`
+*   **Auth:** `Bearer Token` (Role ADMIN)
+*   **Response:** 200 OK.
+
+#### 4. Reject Venue (Admin)
+*   **Method:** `PUT /admin/venues/{id}/reject`
+*   **Auth:** `Bearer Token` (Role ADMIN)
+*   **Response:** 200 OK.
+
+#### 5. Approve Withdraw (Admin)
+*   **Method:** `PUT /admin/withdrawals/{id}/approve`
+*   **Auth:** `Bearer Token` (Role ADMIN)
+*   **Response:** 200 OK.
