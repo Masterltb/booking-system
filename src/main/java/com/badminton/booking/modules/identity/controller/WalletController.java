@@ -8,6 +8,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -28,9 +29,10 @@ public class WalletController {
 
     @PostMapping("/deposit")
     public ResponseEntity<Void> deposit(@RequestBody Map<String, BigDecimal> request) {
-        BigDecimal amount = request.get("amount");
-        walletService.deposit(amount);
-        return ResponseEntity.ok().build();
+        // Deposits must only be credited after a verified provider callback.
+        // This project has no provider integration, so fail closed instead of
+        // trusting an amount supplied by the client.
+        return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED).build();
     }
 
     @PostMapping("/pay-booking/{bookingId}")
