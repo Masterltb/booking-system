@@ -12,6 +12,26 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: badminton_db
+          POSTGRES_USER: badminton_app_user
+          POSTGRES_PASSWORD: ci_test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U badminton_app_user -d badminton_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DB_URL: jdbc:postgresql://localhost:5432/badminton_db
+      DB_USERNAME: badminton_app_user
+      DB_PASSWORD: ci_test_password
+      MAIL_USERNAME: ""
+      MAIL_PASSWORD: ""
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
